@@ -6,82 +6,79 @@ Monad Template
 """
 
 import os
+import sys
 import time
 import logging
-import requests
+from pathlib import Path
+
+import yaml
 from litellm import completion
+from telos_client import TelosClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
 # =============================================================================
-# CONFIG — ここだけ変える
+# CONFIG LOADER — 触らない
 # =============================================================================
 
-MONAD_ID = "monad-template"          # 各Monadで一意なID
+_ALLOWED_FIELDS = {"monad_id", "interval_sec", "llm_model", "seed_query"}
+_CONFIG_PATH = Path(__file__).parent / "config.yaml"
+
+
+def load_config() -> dict:
+    if not _CONFIG_PATH.exists():
+        return {}
+    try:
+        with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        print(f"[ERROR] config.yaml の構文エラー: {e}", file=sys.stderr)
+        sys.exit(1)
+    if data is None:
+        return {}
+    unknown = set(data.keys()) - _ALLOWED_FIELDS
+    if unknown:
+        print(f"[ERROR] config.yaml に不正なフィールド: {unknown}", file=sys.stderr)
+        sys.exit(1)
+    return data
+
+
+cfg = load_config()
+MONAD_ID     = cfg.get("monad_id",     os.environ.get("MONAD_ID",     "monad-template"))
+INTERVAL_SEC = cfg.get("interval_sec", int(os.environ.get("INTERVAL_SEC", 180)))
+LLM_MODEL    = cfg.get("llm_model",    os.environ.get("LLM_MODEL",    "openai/gpt-4o-mini"))
+
+# =============================================================================
+# CONFIG — ここだけ変える
+# =============================================================================
 
 PERSONA = """
 あなたは〇〇の専門家です。
 与えられた情報から、仮説・問い・洞察を1〜3文で書いてください。
-既存の知識との接続を意識してください。
 """
-
-INTERVAL_SEC = 180                   # ループ間隔（秒）
-SEARCH_LIMIT = 5                     # Telos検索の取得件数
 
 def fetch_source() -> dict | None:
     """
-    入力ソースを取得する。
-    戻り値: { "summary": str, "raw": str } or None（取得失敗時）
-
-    例: ArXiv, PubMed, RSS, DB, etc. をここに実装する。
+    外部ソースからデータを取得する。
+    sources/pubmed.py を参考に実装してください。
+    戻り値: {"summary": str, "raw": str} or None
     """
     raise NotImplementedError("fetch_source() を実装してください")
 
 # =============================================================================
-# TELOS CLIENT — 触らない
+# TELOS CLIENT / LLM — 触らない
 # =============================================================================
 
-TELOS_URL = os.environ["TELOS_CORE_URL"].rstrip("/")
+telos = TelosClient.from_env(MONAD_ID)
 
-def telos_search(query: str) -> list[dict]:
-    try:
-        res = requests.post(
-            f"{TELOS_URL}/api/v1/search",
-            json={"monad_id": MONAD_ID, "query": query, "limit": SEARCH_LIMIT},
-            timeout=10,
-        )
-        res.raise_for_status()
-        return res.json().get("results", [])
-    except Exception as e:
-        log.warning(f"search failed: {e}")
-        return []
-
-def telos_write(content: str, parent_ids: list[str] = []) -> str | None:
-    try:
-        res = requests.post(
-            f"{TELOS_URL}/api/v1/write",
-            json={"monad_id": MONAD_ID, "content": content, "parent_ids": parent_ids},
-            timeout=10,
-        )
-        res.raise_for_status()
-        return res.json().get("id")
-    except Exception as e:
-        log.warning(f"write failed: {e}")
-        return None
-
-# =============================================================================
-# LLM — 触らない
-# =============================================================================
-
-LLM_MODEL = os.environ.get("LLM_MODEL", "openai/gpt-4o-mini")
 
 def think(user_prompt: str) -> str:
     res = completion(
         model=LLM_MODEL,
         messages=[
             {"role": "system", "content": PERSONA},
-            {"role": "user", "content": user_prompt},
+            {"role": "user",   "content": user_prompt},
         ],
     )
     return res.choices[0].message.content.strip()
@@ -90,51 +87,41 @@ def think(user_prompt: str) -> str:
 # LOOP — 触らない
 # =============================================================================
 
-def build_prompt(source: dict, context: list[dict]) -> str:
-    ctx_text = "\n\n".join(
-        f"[既存知識 score={r['score']:.2f}]\n{r['content']}"
-        for r in context
-    ) if context else "（まだ関連知識なし）"
-
-    return f"""
-## 新しい情報
-{source['raw']}
-
-## Telos空間の関連知識
-{ctx_text}
-
-上記をもとに、仮説・問い・洞察を書いてください。
-"""
-
 def run():
     log.info(f"Starting {MONAD_ID}")
     while True:
         try:
-            # 1. 入力取得
+            # --- Fetch型: 外部ソース → Telos ---
             source = fetch_source()
             if source is None:
-                log.info("source not available, skipping")
                 time.sleep(INTERVAL_SEC)
                 continue
 
-            # 2. Telos検索
-            context = telos_search(source["summary"])
+            context = telos.search(source["summary"])
             parent_ids = [r["id"] for r in context if r.get("score", 0) > 0.75]
-            log.info(f"search hits: {len(context)}, parents: {len(parent_ids)}")
 
-            # 3. LLMで思考
-            prompt = build_prompt(source, context)
+            prompt = f"## 新しい情報\n{source['raw']}\n\n## 関連知識\n" + "\n".join(
+                r["content"] for r in context
+            )
             output = think(prompt)
-            log.info(f"output: {output[:80]}...")
+            telos.write(output, parent_ids)
+            log.info(f"written: {output[:60]}...")
 
-            # 4. Telosに書き込み
-            node_id = telos_write(output, parent_ids)
-            log.info(f"written: {node_id}")
+            # --- Process型に切り替える場合は上記を以下に差し替える ---
+            # SEED_QUERY = os.environ["SEED_QUERY"]
+            # context = telos.search(SEED_QUERY)
+            # if not context:
+            #     time.sleep(INTERVAL_SEC)
+            #     continue
+            # prompt = "\n".join(r["content"] for r in context)
+            # output = think(prompt)
+            # telos.write(output, [r["id"] for r in context if r.get("score", 0) > 0.75])
 
         except Exception as e:
             log.error(f"loop error: {e}", exc_info=True)
 
         time.sleep(INTERVAL_SEC)
+
 
 if __name__ == "__main__":
     run()
