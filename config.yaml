@@ -1,0 +1,38 @@
+# Telos Core base URL (only this key; not overridden by environment variables)
+telos_base_url: http://localhost:8000
+telos_timeout_sec: 30
+telos_retry_max: 5
+telos_retry_sleep_sec: 60
+
+monad_id: monad-template
+
+llm_model: openai/gpt-4o-mini
+
+# User instruction for each loop iteration
+task: "Search shared memory, then save one short insight with telos_write based on what you find."
+
+# Seconds to sleep after each iteration
+interval_sec: 180
+
+# Maximum LLM turns per iteration (one turn may include multiple tool calls)
+max_tool_rounds: 16
+
+system_prompt: |
+  You use Telos tools (telos_search, telos_write) and http_get to complete the given task.
+  Call tools only when needed, then summarize briefly.
+
+# Descriptions passed to the LLM as function definitions (OpenAI-style tools)
+tool_descriptions:
+  telos_search: "Semantic search over Telos shared memory. Use to find related past notes."
+  telos_write: "Write a new memory to Telos. Pass parent_ids with UUIDs to link to existing nodes."
+  http_get: "HTTP GET a public URL. Use for external APIs or reference pages."
+
+# Default / cap for telos_search result count when the model omits limit
+default_search_limit: 5
+max_search_limit: 50
+
+http_get_timeout_sec: 30
+http_get_max_response_chars: 120000
+
+# Allowed hosts for http_get (empty list = allow any host; set hosts in production)
+fetch_allowed_hosts: []

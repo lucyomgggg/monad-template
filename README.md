@@ -1,57 +1,104 @@
-# Monad Template
+# monad-template
 
-Telosエコシステム上で動作する自律エージェント（Monad）のテンプレートです。
-`monad.py` の CONFIG セクションを変えるだけで新しい Monad を作れます。
+A minimal **Monad** (autonomous agent) that connects an LLM to **Telos** and optional HTTP resources. All behavior is driven by **`config.yaml`**; the entrypoint is **`monad.py`**.
 
-## ループ構造
+---
 
-```
-fetch_source()
-    ↓ None → スキップ
-search(summary)  →  think(source + context)  →  write(output)
-    ↓
-sleep(INTERVAL_SEC)
-```
+## What is Telos?
 
-Process型（外部ソースなし）に切り替える場合は `monad.py` 末尾のコメントを参照。
+**Telos** is a shared memory service for agents: text entries are embedded and stored; you can **search** by semantic similarity and **write** new memories. A typical deployment exposes HTTP APIs such as:
 
-## クイックスタート
+- `POST /api/v1/search` — vector search over stored memories  
+- `POST /api/v1/write` — insert a new memory (with optional links to parent nodes)
 
-```bash
-cp -r monads/monad-template monads/monad-my-domain
-cd monads/monad-my-domain
-```
+This template talks to Telos over **`telos_base_url`** in `config.yaml`. It does **not** read Telos URLs from environment variables so that one file fully describes connectivity.
 
-1. `monad.py` の `PERSONA` と `fetch_source()` を実装する
-2. `sources/pubmed.py` を参考にソースを作る（またはそのまま使う）
-3. 環境変数を設定してデプロイ
+---
 
-## 環境変数
+## What is a Monad?
 
-| 変数名 | 必須 | デフォルト | 説明 |
-|---|---|---|---|
-| `TELOS_CORE_URL` | ✓ | - | telos-core の URL |
-| `OPENAI_API_KEY` | △ | - | OpenAI 使用時 |
-| `ANTHROPIC_API_KEY` | △ | - | Anthropic 使用時 |
-| `MONAD_ID` | - | `monad-template` | エージェント ID |
-| `INTERVAL_SEC` | - | `180` | ループ間隔（秒） |
-| `LLM_MODEL` | - | `openai/gpt-4o-mini` | LiteLLM モデル ID |
+In this ecosystem, a **Monad** is a long-running (or repeatedly invoked) process that:
 
-`config.yaml` でも設定可能（環境変数より優先）。`config.yaml.example` を参照。
+1. Loads **`task`** and **`system_prompt`** from config.  
+2. Lets the **LLM decide** when to call tools — **`telos_search`**, **`telos_write`**, and **`http_get`**.  
+3. Sleeps **`interval_sec`**, then repeats (reloading `config.yaml` each iteration so you can edit behavior without rebuilding).
 
-## Railway へのデプロイ
+The model chooses the tool sequence; the template does not hardcode “search then write”. That makes it easy to specialize the agent by changing prompts and config only.
 
-1. Railway でプロジェクトを作成
-2. リポジトリを接続（または `railway up`）
-3. Variables タブで `TELOS_CORE_URL` と API キーを設定
-4. デプロイ完了（`railway.toml` により自動再起動）
+---
 
-## Vibe Coding
+## How to run
 
-```
-このテンプレートを使って〇〇ドメインの Monad を作って。
-- ドメイン: [例: 気候科学 / 経済学]
-- ソース: [例: ArXiv の cs.AI / 特定の RSS フィード]
-- ペルソナ: [例: 批判的思考を重視する研究者]
-monad.py の PERSONA と fetch_source() を実装してください。
-```
+1. Install dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Point **`telos_base_url`** at your Telos Core instance and set **`monad_id`**, **`llm_model`**, **`task`**, and the rest of the required keys (see `monad.py`: `_REQUIRED_KEYS` and `validate_config()`).
+
+3. Set provider credentials in the environment (for example **`OPENAI_API_KEY`** for OpenAI models).
+
+4. Start:
+
+   ```bash
+   python monad.py
+   ```
+
+For containers, the included `Dockerfile` runs `python monad.py` after copying the project.
+
+---
+
+## Configuration overview
+
+| Area | Purpose |
+|------|---------|
+| `telos_*` | HTTP client to Telos (URL, timeouts, 429 retries) |
+| `monad_id` | Namespace for memories in Telos |
+| `llm_model` | LiteLLM model id (e.g. `openai/gpt-4o-mini`) |
+| `task` | User message each loop — what the agent should do |
+| `system_prompt` | System instructions for the LLM |
+| `tool_descriptions` | Strings exposed as tool descriptions to the model |
+| `interval_sec` / `max_tool_rounds` | Loop timing and tool round cap |
+| `fetch_allowed_hosts` | Optional allowlist for `http_get`; empty list allows any host |
+
+Secrets stay in **environment variables**; everything else belongs in **`config.yaml`**.
+
+---
+
+## Customization examples
+
+**Different goal each deployment**  
+Change **`task`** and **`system_prompt`** only — e.g. “Summarize the latest search hits into one bullet” vs. “Propose a hypothesis and store it with parent links to supporting memories.”
+
+**Separate memory namespaces**  
+Use distinct **`monad_id`** values so Telos tags memories per agent.
+
+**Tighter HTTP**  
+Set **`fetch_allowed_hosts`** to e.g. `["api.slack.com", "www.ncbi.nlm.nih.gov"]` so **`http_get`** cannot reach arbitrary hosts.
+
+**Cheaper or smarter models**  
+Switch **`llm_model`** to another LiteLLM-supported id; keep the same tools.
+
+**Fewer tool rounds**  
+Lower **`max_tool_rounds`** if you want stricter caps on LLM turns per iteration.
+
+**Faster loops**  
+Reduce **`interval_sec`** for quicker cycles (mind rate limits on Telos and the LLM API).
+
+---
+
+## Extending the template
+
+Advanced use cases can add new tools inside **`monad.py`** (extend `build_tools()` and `run_tools()`) — for example, calling another internal API or wrapping a database. Keep descriptions in **`config.yaml`** under a new key if you want them editable without code changes.
+
+---
+
+## Files
+
+| File | Role |
+|------|------|
+| `monad.py` | LLM loop, Telos client, tool dispatch |
+| `config.yaml` | All non-secret runtime settings |
+| `requirements.txt` | Python dependencies |
+| `.env.example` | Reminder for API keys (copy to `.env` if you use one) |
