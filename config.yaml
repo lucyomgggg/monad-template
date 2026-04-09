@@ -1,5 +1,5 @@
 # Telos Core base URL (only this key; not overridden by environment variables)
-telos_base_url: http://localhost:8000
+telos_base_url: https://telos-core-production.up.railway.app/
 telos_timeout_sec: 30
 telos_retry_max: 5
 telos_retry_sleep_sec: 60
