@@ -16,7 +16,7 @@ This is stigmergy: the same principle that lets an ant colony solve shortest-pat
 
 But unlike ants, LLMs don't blindly follow pheromone trails. They read the traces, critique them, synthesize them, and contribute something new. **Knowledge doesn't just accumulate in Telos — it evolves.**
 
-The core APIs are simple:
+The core APIs are intentionally simple:
 
 - `POST /api/v1/search` — vector search over stored memories
 - `POST /api/v1/write` — insert a new memory (with optional links to parent nodes)
@@ -31,13 +31,13 @@ The individual node of collective intelligence. One LLM. One loop. One contribut
 
 A Monad:
 
-1. Loads a `task` and `system_prompt` from config — its purpose in the ecosystem.
+1. Loads a `task` and `system_prompt` from config — its role in the ecosystem.
 2. Lets the **LLM decide** when to call tools: `telos_search`, `telos_write`, and `http_get`.
 3. Sleeps `interval_sec`, then repeats — continuously reading what the collective knows and writing back what it discovers.
 
 The model chooses the sequence. You define the goal. Telos holds the memory.
 
-A single Monad is limited — like any individual, it is bounded by its context window, its knowledge, its angle of approach. The power emerges when many Monads run in parallel, each writing into the same space, each reading what the others left behind. The cluster becomes something no individual Monad could be.
+A single Monad is limited — bounded by its context window, its knowledge, its angle of approach. The power emerges when many Monads run in parallel, each writing into the same space, each reading what the others left behind. One genius thinking forever still loses to the collective. A Monad alone is just a very fast thinker. Connected to Telos, it becomes part of something that compounds.
 
 ---
 
@@ -60,22 +60,23 @@ For containers, the included `Dockerfile` runs `python monad.py` after copying t
 
 ## Configuration overview
 
-| Area | Purpose |
+| Key | Purpose |
 |---|---|
-| `telos_*` | HTTP client to Telos (URL, timeouts, 429 retries) |
+| `telos_base_url` | URL of the Telos Core instance |
 | `monad_id` | Namespace for this Monad's memories in Telos |
 | `llm_model` | LiteLLM model id (e.g. `openai/gpt-4o-mini`) |
 | `task` | User message each loop — what the agent should do |
 | `system_prompt` | System instructions for the LLM |
-| `tool_descriptions` | Strings exposed as tool descriptions to the model |
-| `interval_sec` / `max_tool_rounds` | Loop timing and tool round cap |
-| `fetch_allowed_hosts` | Optional allowlist for `http_get`; empty list allows any host |
+| `tool_descriptions` | Tool descriptions exposed to the model |
+| `interval_sec` | Sleep duration between loops |
+| `max_tool_rounds` | Cap on LLM tool-use turns per iteration |
+| `fetch_allowed_hosts` | Allowlist for `http_get`; empty list allows any host |
 
-Secrets stay in **environment variables**; everything else belongs in `config.yaml`.
+Secrets stay in **environment variables**; everything else belongs in `config.yaml`. Config is reloaded every iteration — you can edit behavior without restarting the process.
 
 ---
 
-## Customization examples
+## Customization
 
 **Different role in the collective**
 Change `task` and `system_prompt` to define what this Monad contributes — "generate hypotheses from recent papers," "synthesize contradictions in stored memories," "find gaps no other Monad has explored."
@@ -93,7 +94,9 @@ Switch `llm_model` to any LiteLLM-supported id. Smarter models explore further; 
 
 ## Extending the template
 
-Add new tools inside `monad.py` (extend `build_tools()` and `run_tools()`) to connect your Monad to external APIs, databases, or other services. Keep descriptions in `config.yaml` under a new key so behavior stays editable without code changes.
+Add new tools inside `monad.py` (extend `build_tools()` and `run_tools()`) to connect your Monad to external APIs, databases, or other services. Keep descriptions in `config.yaml` so behavior stays editable without code changes.
+
+For a deeper look at how the loop and tool dispatch work internally, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
 
@@ -102,6 +105,7 @@ Add new tools inside `monad.py` (extend `build_tools()` and `run_tools()`) to co
 | File | Role |
 |---|---|
 | `monad.py` | LLM loop, Telos client, tool dispatch |
+| `ARCHITECTURE.md` | Detailed architecture (config, loops, tools, Telos mapping) |
 | `config.yaml` | All non-secret runtime settings |
 | `requirements.txt` | Python dependencies |
 | `.env.example` | Reminder for API keys (copy to `.env` if you use one) |
