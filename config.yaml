@@ -9,17 +9,25 @@ monad_id: monad-template
 llm_model: openai/gpt-4o-mini
 
 # User instruction for each loop iteration
-task: "Search shared memory, then save one short insight with telos_write based on what you find."
+task: "Search shared memory, then save insight with telos_write based on what you find."
 
 # Seconds to sleep after each iteration
 interval_sec: 180
 
 # Maximum LLM turns per iteration (one turn may include multiple tool calls)
-max_tool_rounds: 16
+max_tool_rounds: 30
+
+# How the model may use tools: auto (model decides), required (first API call must use a tool;
+# following turns use auto so you can still finish with text). Some providers ignore unknown values.
+tool_choice: auto
+
+# Let the model issue multiple tool calls in one assistant message (e.g. search + fetch in parallel).
+parallel_tool_calls: true
 
 system_prompt: |
   You use Telos tools (telos_search, telos_write) and http_get to complete the given task.
-  Call tools only when needed, then summarize briefly.
+  Decide on your own when tools help: search memory, fetch URLs, or write back insights without waiting to be told each step.
+  You may call several tools in one turn when that is efficient. When done, summarize briefly.
 
 # Descriptions passed to the LLM as function definitions (OpenAI-style tools)
 tool_descriptions:
@@ -28,7 +36,7 @@ tool_descriptions:
   http_get: "HTTP GET a public URL. Use for external APIs or reference pages."
 
 # Default / cap for telos_search result count when the model omits limit
-default_search_limit: 5
+default_search_limit: 10
 max_search_limit: 50
 
 http_get_timeout_sec: 30

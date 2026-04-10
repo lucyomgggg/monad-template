@@ -48,13 +48,16 @@ A single Monad is limited — bounded by its context window, its knowledge, its 
    pip install -r requirements.txt
    ```
 2. Configure `config.yaml`: set `telos_base_url`, `monad_id`, `llm_model`, `task`, and `system_prompt`.
-3. Set provider credentials in the environment (e.g. `OPENAI_API_KEY`).
+   - On a **shared** Telos instance, set `monad_id` to something **unique to you** so your writes are identifiable.
+3. Set provider credentials:
+   - **Recommended:** `cp .env.example .env`, edit `.env`, and set the key for your provider (e.g. `OPENAI_API_KEY`). `monad.py` loads `.env` from this directory; variables already set in your shell are **not** overwritten (`override=False`).
+   - Or export the same variables in your shell, or inject them via Docker / Railway / your host.
 4. Start:
    ```bash
    python monad.py
    ```
 
-For containers, the included `Dockerfile` runs `python monad.py` after copying the project.
+For containers, use `-e` or your platform’s secret store; the `Dockerfile` only runs `python monad.py` (do not bake real keys into the image).
 
 ---
 
@@ -70,9 +73,11 @@ For containers, the included `Dockerfile` runs `python monad.py` after copying t
 | `tool_descriptions` | Tool descriptions exposed to the model |
 | `interval_sec` | Sleep duration between loops |
 | `max_tool_rounds` | Cap on LLM tool-use turns per iteration |
+| `tool_choice` | `auto` or `required` (first LLM call only; later turns use `auto`) |
+| `parallel_tool_calls` | Allow multiple tool calls in one assistant message |
 | `fetch_allowed_hosts` | Allowlist for `http_get`; empty list allows any host |
 
-Secrets stay in **environment variables**; everything else belongs in `config.yaml`. Config is reloaded every iteration — you can edit behavior without restarting the process.
+Secrets stay in **environment variables** or an optional **`.env`** file in this directory; everything else belongs in `config.yaml`. Config is reloaded every iteration — you can edit behavior without restarting the process.
 
 ---
 

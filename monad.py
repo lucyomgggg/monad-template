@@ -14,12 +14,15 @@ from typing import Any
 
 import httpx
 import yaml
+from dotenv import load_dotenv
 from litellm import completion
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
-_CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
+_CONFIG_DIR = Path(__file__).resolve().parent
+_CONFIG_PATH = _CONFIG_DIR / "config.yaml"
+load_dotenv(_CONFIG_DIR / ".env", override=False)
 
 _REQUIRED_KEYS = (
     "telos_base_url",
@@ -173,6 +176,18 @@ def validate_config(cfg: dict[str, Any]) -> None:
         log.error("telos_base_url is empty")
         sys.exit(1)
 
+    tc = cfg.get("tool_choice", "auto")
+    if isinstance(tc, str) and not str(tc).strip():
+        log.error("tool_choice must not be empty when set as string")
+        sys.exit(1)
+    if not isinstance(tc, (str, dict)):
+        log.error("tool_choice must be a string (e.g. auto, required) or an OpenAI-style object")
+        sys.exit(1)
+
+    if "parallel_tool_calls" in cfg and not isinstance(cfg["parallel_tool_calls"], bool):
+        log.error("parallel_tool_calls must be a boolean when set")
+        sys.exit(1)
+
 
 def build_tools(cfg: dict[str, Any]) -> list[dict[str, Any]]:
     td = cfg["tool_descriptions"]
@@ -312,6 +327,20 @@ def _assistant_message_to_dict(msg: Any) -> dict[str, Any]:
     return d
 
 
+def _tool_choice_for_round(cfg: dict[str, Any], round_i: int) -> str | dict[str, Any]:
+    """
+    First LLM call may use config tool_choice (e.g. 'required' to force an initial tool).
+    Later rounds always use 'auto' so the model can answer in plain text after seeing tool results.
+    """
+    raw = cfg.get("tool_choice", "auto")
+    if round_i > 0:
+        return "auto"
+    if isinstance(raw, dict):
+        return raw
+    s = str(raw).strip()
+    return s if s else "auto"
+
+
 def agent_turn(
     telos: TelosClient,
     cfg: dict[str, Any],
@@ -320,8 +349,19 @@ def agent_turn(
 ) -> None:
     tools = build_tools(cfg)
     max_rounds = int(cfg["max_tool_rounds"])
+    parallel = cfg.get("parallel_tool_calls", True)
+    if not isinstance(parallel, bool):
+        parallel = True
+
     for round_i in range(max_rounds):
-        res = completion(model=model, messages=messages, tools=tools, tool_choice="auto")
+        tool_choice = _tool_choice_for_round(cfg, round_i)
+        res = completion(
+            model=model,
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            parallel_tool_calls=parallel,
+        )
         choice = res.choices[0]
         msg = choice.message
         d = _assistant_message_to_dict(msg)

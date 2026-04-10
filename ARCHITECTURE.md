@@ -74,7 +74,7 @@ If **`run_once()`** raises an exception, the code logs it and still sleeps using
 
 ### Layer C — LLM and tools (`agent_turn()`)
 
-This is **function calling** (OpenAI-style tools) via **LiteLLM** `completion(..., tools=..., tool_choice="auto")`.
+This is **function calling** (OpenAI-style tools) via **LiteLLM** `completion(..., tools=..., tool_choice=..., parallel_tool_calls=...)`. The first round’s `tool_choice` comes from **`config.yaml`** (default `auto`); later rounds use **`auto`** so the model can answer in plain text after tool results.
 
 Repeated up to **`max_tool_rounds`** times:
 
@@ -96,7 +96,7 @@ Repeated up to **`max_tool_rounds`** times:
 | Symbol | Responsibility |
 |--------|----------------|
 | `load_config` | Parse `config.yaml`; exit if missing or invalid YAML shape. |
-| `validate_config` | Required keys, non-empty `task`, numeric fields, `tool_descriptions` completeness, `fetch_allowed_hosts` is a list. |
+| `validate_config` | Required keys, non-empty `task`, numeric fields, `tool_descriptions` completeness, `fetch_allowed_hosts` is a list; optional `tool_choice` / `parallel_tool_calls` shape checks. |
 | `build_tools` | Map YAML `tool_descriptions` into LiteLLM/OpenAI tool schemas. |
 | `TelosClient` | HTTP to Telos; retries on **429** with sleep from config. |
 | `run_tools` | Dispatch tool name → Telos methods or `http_get`; JSON-encode results for the LLM. |
@@ -110,8 +110,9 @@ Repeated up to **`max_tool_rounds`** times:
 
 | Source | Typical content |
 |--------|------------------|
-| **`config.yaml`** | `telos_base_url`, `monad_id`, `llm_model`, prompts, limits, `tool_descriptions`, `fetch_allowed_hosts` |
+| **`config.yaml`** | `telos_base_url`, `monad_id`, `llm_model`, prompts, limits, `tool_descriptions`, `fetch_allowed_hosts`, `tool_choice`, `parallel_tool_calls` |
 | **Environment** | `OPENAI_API_KEY`, or other provider keys required by **`llm_model`** |
+| **`.env`** (optional) | Same as environment; loaded from the template directory at import time via **`python-dotenv`**. Existing shell variables win (`override=False`). |
 
 Telos base URL is **not** read from environment variables in this template — it is **only** `telos_base_url` in YAML, so a single file describes connectivity.
 
