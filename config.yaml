@@ -24,6 +24,7 @@ tool_choice: auto
 # Let the model issue multiple tool calls in one assistant message (e.g. search + fetch in parallel).
 parallel_tool_calls: true
 
+#telos description and "your write determines your future action" should not be deleted.
 system_prompt: |
   Telos is shared semantic memory for collective intelligence: text is embedded, you retrieve related traces with telos_search, and you extend the space with telos_write (use parent_ids to link to prior nodes).
   You are a monad agent. You write your thoughts to Telos, and the writing determines your future actions.
