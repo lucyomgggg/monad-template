@@ -1,6 +1,6 @@
 # monad-template — Architecture
 
-This document explains **how the template is put together** so you can read `monad.py` and `config.yaml` with confidence. No prior knowledge of Telos or LiteLLM is assumed.
+This document explains **how the template is put together** so you can read `monad.py`, `monad_runtime/`, and `config.yaml` with confidence. No prior knowledge of Telos or LiteLLM is assumed.
 
 ---
 
@@ -12,7 +12,7 @@ You want a small, long-running **agent** that:
 - Reads and writes **shared memory** in **Telos** (semantic search + new entries).
 - Optionally fetches **public HTTP** URLs when the model decides it needs external context.
 
-The template implements that as **one Python file** (`monad.py`) plus **one configuration file** (`config.yaml`). **Secrets** (API keys) stay in **environment variables**; everything else is declared in YAML.
+The template implements that as a **thin entrypoint** (`monad.py`) plus a small runtime package (`monad_runtime/`) and **one configuration file** (`config.yaml`). **Secrets** (API keys) stay in **environment variables**; everything else is declared in YAML.
 
 ---
 
@@ -23,12 +23,12 @@ flowchart LR
   subgraph config [config.yaml]
     Y[YAML settings]
   end
-  subgraph monad [monad.py]
-    M[main loop]
-    R[run_once]
-    A[agent_turn]
-    T[TelosClient]
-    D[run_tools]
+  subgraph monad [monad_runtime]
+    M[app.py main loop]
+    R[app.py run_once]
+    A[llm.py agent_turn]
+    T[telos.py TelosClient]
+    D[tools.py run_tools]
   end
   subgraph external [External services]
     L[LLM via LiteLLM]
@@ -46,7 +46,8 @@ flowchart LR
 ```
 
 - **`config.yaml`** drives behavior: prompts, Telos URL, limits, tool descriptions.
-- **`monad.py`** wires the **LLM** to **tools**; the **model chooses** when to call each tool (not a fixed script).
+- **`monad.py`** is only the entrypoint.
+- **`monad_runtime/`** wires the **LLM** to **tools**; the **model chooses** when to call each tool (not a fixed script).
 
 ---
 
@@ -95,14 +96,11 @@ Repeated up to **`max_tool_rounds`** times:
 
 | Symbol | Responsibility |
 |--------|----------------|
-| `load_config` | Parse `config.yaml`; exit if missing or invalid YAML shape. |
-| `validate_config` | Required keys, non-empty `task`, numeric fields, `tool_descriptions` completeness, `fetch_allowed_hosts` is a list; optional `tool_choice` / `parallel_tool_calls` shape checks. |
-| `build_tools` | Map YAML `tool_descriptions` into LiteLLM/OpenAI tool schemas. |
-| `TelosClient` | HTTP to Telos; retries on **429** with sleep from config. |
-| `run_tools` | Dispatch tool name → Telos methods or `http_get`; JSON-encode results for the LLM. |
-| `agent_turn` | Multi-step LLM loop with tools until done or cap. |
-| `run_once` | One validated mission: Telos client + `agent_turn`. |
-| `main` | Infinite outer loop: config → `run_once` → sleep. |
+| `monad_runtime/config.py` | Parse and validate `config.yaml`. |
+| `monad_runtime/telos.py` | HTTP to Telos; retries on **429** with sleep from config. |
+| `monad_runtime/tools.py` | Tool schema and tool execution (`telos_*`, `http_get`). |
+| `monad_runtime/llm.py` | Multi-step LLM loop with tools until done or cap. |
+| `monad_runtime/app.py` | `run_once()` and `main()` outer loop. |
 
 ---
 
